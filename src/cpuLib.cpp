@@ -127,6 +127,9 @@ int runCpuMCPi(uint64_t iterationCount, uint64_t sampleSize) {
 	uint64_t totalHitCount = 0;
 	std::string str;
 
+	std::cout << "Here's your iteration Count: " << iterationCount << " \n";
+	std::cout << "Here's your Sample Size: " << sampleSize << " \n";
+
 	auto tStart = std::chrono::high_resolution_clock::now();
 
 	#ifndef DEBUG_PRINT_DISABLE
@@ -145,6 +148,10 @@ int runCpuMCPi(uint64_t iterationCount, uint64_t sampleSize) {
 		for (uint64_t idx = 0; idx < sampleSize; ++idx) {
 			x = dist(random_device);
 			y = dist(random_device);
+
+			//std::cout << "Here's your x: " << x << " \n";
+			//std::cout << "Here's your y: " << y << " \n";
+			//std::cout << "Here's your hit check: " << int(x * x + y * y) << " \n";
 			
 			if ( int(x * x + y * y) == 0 ) {
 				++ hitCount;
@@ -155,6 +162,7 @@ int runCpuMCPi(uint64_t iterationCount, uint64_t sampleSize) {
 			std::cout << std::string(str.length(),'\b') << std::flush;
 		#endif
 		totalHitCount += hitCount;
+		printf("Total Hit Count: %lu \n", totalHitCount);
 	}
 	#ifndef DEBUG_PRINT_DISABLE
 		std::cout << str << std::flush << "\n\n";
