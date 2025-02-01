@@ -3,6 +3,7 @@
 #include "cpuLib.h"
 #include "curand_kernel.h"
 
+
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort)
 {
 	if (code != cudaSuccess) 
@@ -19,6 +20,7 @@ void saxpy_gpu (float* x, float* y, float scale, int size) {
 	if (index < size) {
 		y[index] += scale * x[index];
 	}
+	// End Inserted Code
 
 }
 
@@ -27,10 +29,15 @@ int runGpuSaxpy(int vectorSize) {
 	std::cout << "Hello GPU Saxpy!\n";
 
 	//	Insert code here
-	
+
+	/*
+	std::cout << "The current vector size is: " << vectorSize << "\n";
+	std::cout << "Do you want to change it to: " << "\n";
+	scanf("%d", &vectorSize);
+	*/
+
 	int size = vectorSize * sizeof(float);
 
-	std::cout << "Here's your size: " << (vectorSize * sizeof(float)) << " \n";
 	float* x_h, * y_h, * z_h;
 	float scale = 2.0f;
 	
@@ -38,20 +45,12 @@ int runGpuSaxpy(int vectorSize) {
 	y_h = new float[vectorSize];
 	z_h = new float[vectorSize];
 
-	std::cout << "CPU Vectors initialized\n";
-
 	// Initialize A and B with some values
 	for (int i = 0; i < vectorSize; i++) {
 		x_h[i] = (float)(rand() % 100);   
 		y_h[i] = (float)(rand() % 100);
 		z_h[i] = y_h[i];
 	}
-
-	//printVector(x_h, size);
-	//printVector(y_h, size);
-	//printVector(z_h, size);
-
-	std::cout << "Beginning GPU initialization, CPU initialization completed!\n";
 
 	//Beginning of GPU code
 	float* x_d, * y_d;
@@ -77,7 +76,10 @@ int runGpuSaxpy(int vectorSize) {
 	cudaMemcpy(x_d, x_h, size, cudaMemcpyHostToDevice);
 	cudaMemcpy(y_d, y_h, size, cudaMemcpyHostToDevice);
 	
-	saxpy_gpu << <ceil(vectorSize/256.0), 256 >> > (x_d, y_d, scale, size);
+	int threadsPerBlock = 256;
+	int blocksPerGrid = (vectorSize + threadsPerBlock - 1) / threadsPerBlock;
+
+	saxpy_gpu << <blocksPerGrid, threadsPerBlock>> > (x_d, y_d, scale, size);
 
 	cudaDeviceSynchronize();
 
@@ -88,10 +90,6 @@ int runGpuSaxpy(int vectorSize) {
 		printf("%3.4f, ", z_h[i]);
 	}
 	printf(" ... }\n");
-
-	//printVector(x_h, size);
-	//printVector(y_h, size);
-	//printVector(z_h, size);
 
 	int errorCount = verifyVector(x_h, y_h, z_h, scale, vectorSize);
 	std::cout << "Found " << errorCount << " / " << vectorSize << " errors \n";
@@ -121,62 +119,58 @@ int runGpuSaxpy(int vectorSize) {
 */
 
 __global__
-void generatePoints (uint64_t * pSums, uint64_t pSumSize, uint64_t sampleSize) {
+void generatePoints(uint64_t* pSums, uint64_t pSumSize, uint64_t sampleSize) {
 	// Each thread must generate sampleSize points.
-	
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
-
 	//RNG Thread-State-Independence
 	curandState_t rng;
 	curand_init(clock64(), index, 0, &rng);
-	
 	float x, y;
 	uint64_t hitCount = 0;
-	//uint64_t totalHitCount = 0;
-	
+
 	if (index < pSumSize) {
 		for (int idx = 0; idx < sampleSize; ++idx) {
 			x = curand_uniform(&rng);
 			y = curand_uniform(&rng);
-
 			if (int(x * x + y * y) == 0) {
 				++hitCount;
 			}
-			
 		}
 		pSums[index] += hitCount;
-		//printf("Index: %d | pSums[Index]: %lu \n", index, pSums[index]);
 	}
-	//printf("Index: %d | hitCount: %lu \n", index, hitCount);
 }
 
-__global__ 
-void reduceCounts (uint64_t * pSums, uint64_t * totals, uint64_t pSumSize, uint64_t reduceSize) {
+__global__
+void reduceCounts(uint64_t* pSums, uint64_t* totals, uint64_t pSumSize, uint64_t reduceSize) {
 	//	Insert code here
-	//	Inputs: pSums, pSumSize, reduceSize
-	//	Outputs: totals
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
-
-	//First have to check if the thread index (which is basically going to be [0...31] is < reduceSize (also 32)
 	if (index < reduceSize) {
-		//Next the for-loop has to run through psums according to each thread
-		//Thread 0 would cover [0..31], thread 1 would cover [32..63] -- this is [index*reduceSize + idx] thread 2 idx=4 is [2*32+4]
-		for (int idx = 0; idx < reduceSize; ++idx) {
-			totals[index] += pSums[index * reduceSize + idx];
+		for (int idx = 0; idx < (pSumSize / reduceSize); ++idx) {
+			totals[index] += pSums[index * (pSumSize / reduceSize) + idx];
 		}
 	}
-
 	//	End of inserted code
 }
 
-int runGpuMCPi (uint64_t generateThreadCount, uint64_t sampleSize, 
+int runGpuMCPi(uint64_t generateThreadCount, uint64_t sampleSize,
 	uint64_t reduceThreadCount, uint64_t reduceSize) {
+	/*
+	std::cout << "Here's your generate Thread Count: " << generateThreadCount << " \n"; // 1024
+	std::cout << "Do you want to change it to: " << "\n";
+	scanf("%" SCNu64, &generateThreadCount);
 
-	std::cout << "Here's your generate Thread Count: " << generateThreadCount	<< " \n"; // 1024
-	std::cout << "Here's your Sample Size: "		 << sampleSize				<< " \n"; // 100000
-	std::cout << "Here's your Reduce Thread Count: " << reduceThreadCount		<< " \n"; // 32
-	std::cout << "Here's your reduce Size: "		 << reduceSize				<< " \n"; // 32
+	std::cout << "Here's your Sample Size: " << sampleSize << " \n"; // 100000
+	std::cout << "Do you want to change it to: " << "\n";
+	scanf("%" SCNu64, &sampleSize);
 
+	std::cout << "Here's your Reduce Thread Count: " << reduceThreadCount << " \n"; // 32
+	std::cout << "Do you want to change it to: " << "\n";
+	scanf("%" SCNu64, &reduceThreadCount);
+
+	std::cout << "Here's your reduce Size: " << reduceSize << " \n"; // 32
+	std::cout << "Do you want to change it to: " << "\n";
+	scanf("%" SCNu64, &reduceSize);
+	*/
 	//  Check CUDA device presence
 	int numDev;
 	cudaGetDeviceCount(&numDev);
@@ -186,30 +180,30 @@ int runGpuMCPi (uint64_t generateThreadCount, uint64_t sampleSize,
 	}
 
 	auto tStart = std::chrono::high_resolution_clock::now();
-		
-	float approxPi = estimatePi(generateThreadCount, sampleSize, 
+
+	float approxPi = estimatePi(generateThreadCount, sampleSize,
 		reduceThreadCount, reduceSize);
-	
+
 	std::cout << "Estimated Pi = " << approxPi << "\n";
 
-	auto tEnd= std::chrono::high_resolution_clock::now();
+	auto tEnd = std::chrono::high_resolution_clock::now();
 
-	std::chrono::duration<double> time_span = (tEnd- tStart);
+	std::chrono::duration<double> time_span = (tEnd - tStart);
 	std::cout << "It took " << time_span.count() << " seconds.";
 
 	return 0;
 }
 
-double estimatePi(uint64_t generateThreadCount, uint64_t sampleSize, 
+double estimatePi(uint64_t generateThreadCount, uint64_t sampleSize,
 	uint64_t reduceThreadCount, uint64_t reduceSize) {
-	
+
 	double approxPi = 0;
 
 	//      Insert code here
 	uint64_t totalHitCount = 0;
 	int totalThreads = generateThreadCount;
-	std::cout << "Total Threads: " << totalThreads << "\n";
-	uint64_t* pSums_h, *pSums_h2, *totals_h;
+	//std::cout << "Total Threads: " << totalThreads << "\n";
+	uint64_t* pSums_h, * pSums_h2, * totals_h;
 	pSums_h = new uint64_t[totalThreads];
 	pSums_h2 = new uint64_t[totalThreads];
 	totals_h = new uint64_t[totalThreads];
@@ -226,46 +220,41 @@ double estimatePi(uint64_t generateThreadCount, uint64_t sampleSize,
 	}
 
 	uint64_t* pSums_d, * totals_d;
+
 	cudaMalloc((void**)&pSums_d, generateThreadCount * sizeof(uint64_t));
 	cudaMalloc((void**)&totals_d, reduceThreadCount * sizeof(uint64_t));
 
 	cudaMemcpy(pSums_d, pSums_h, generateThreadCount * sizeof(uint64_t), cudaMemcpyHostToDevice);
 
-
-	//int threadsPerBlock = generateThreadCount; // 4 blocks * 256 = 1024 -- This will probably break if they send GTC > 1024
-	//int blocksPerGrid = (threadsPerBlock + sampleSize - 1) / threadsPerBlock;
-
-	int threadsPerBlock = 256; // 4 blocks * 256 = 1024 -- This will probably break if they send GTC > 1024
+	int threadsPerBlock = 256;
 	int blocksPerGrid = (totalThreads + threadsPerBlock - 1) / threadsPerBlock;
-
-
 
 	generatePoints << <blocksPerGrid, threadsPerBlock >> > (pSums_d, totalThreads, sampleSize);
 
 	cudaDeviceSynchronize();
-		
-	cudaMemcpy(pSums_h2, pSums_d, generateThreadCount * sizeof(uint64_t), cudaMemcpyDeviceToHost);
-
-
-	cudaMemcpy(pSums_d, pSums_h2, generateThreadCount * sizeof(uint64_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(totals_d, totals_h, reduceThreadCount * sizeof(uint64_t), cudaMemcpyHostToDevice);
-
-	reduceCounts << <1, 32 >> > (pSums_d, totals_d, totalThreads, reduceSize);
 	
+	cudaMemcpy(totals_d, totals_h, reduceThreadCount * sizeof(uint64_t), cudaMemcpyHostToDevice);
+	
+	if (reduceSize > reduceThreadCount) { reduceSize = reduceThreadCount; }
+	
+	reduceCounts << <1, reduceThreadCount >> > (pSums_d, totals_d, totalThreads, reduceSize);
+
 	cudaDeviceSynchronize();
 
 	cudaMemcpy(totals_h, totals_d, reduceThreadCount * sizeof(uint64_t), cudaMemcpyDeviceToHost);
 
-	printf(" totals_h = { ");
+	printf(" Initial Totals = { ");
 	for (int i = 0; i < reduceSize; ++i) {
 		if (totals_h[i] != 0) {
-			std::cout << "pSums: " << totals_h[i] << "\n ";
 			totalHitCount += totals_h[i];
+			if (i < 5) {
+				std::cout << totals_h[i] << ", ";
+			}
 		}
 	}
 	printf(" ... }\n");
-	std::cout << "totalHitCount: " << totalHitCount << "\n ";
-
+	//std::cout << "totalHitCount: " << totalHitCount << "\n";
+	
 	approxPi = ((double)totalHitCount / sampleSize) / generateThreadCount;
 	approxPi = approxPi * 4.0f;
 
